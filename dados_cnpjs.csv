@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Território Inovação — Mapa de Startups Curitiba</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #0d1117; color: #e6edf3; }
+
+    header {
+      padding: 12px 20px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1rem; font-weight: 700; color: #58a6ff; }
+    header .sub { font-size: 0.72rem; color: #8b949e; margin-top: 2px; }
+
+    #controls {
+      padding: 8px 16px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    #search {
+      flex: 1;
+      min-width: 200px;
+      max-width: 380px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #e6edf3;
+      font-size: 0.83rem;
+      outline: none;
+    }
+    #search:focus { border-color: #58a6ff; }
+    #search::placeholder { color: #484f58; }
+
+    #filtro-area {
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #e6edf3;
+      font-size: 0.83rem;
+      outline: none;
+      cursor: pointer;
+      max-width: 260px;
+    }
+    #filtro-area:focus { border-color: #58a6ff; }
+
+    #count { font-size: 0.75rem; color: #8b949e; white-space: nowrap; }
+
+    #map { flex: 1; }
+
+    .leaflet-popup-content-wrapper {
+      background: #161b22;
+      color: #e6edf3;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    .leaflet-popup-tip { background: #161b22; }
+    .leaflet-popup-content { margin: 12px 14px; }
+    .p-nome { font-weight: 700; font-size: 0.9rem; color: #58a6ff; margin-bottom: 6px; line-height: 1.3; }
+    .p-row { font-size: 0.75rem; color: #8b949e; margin-top: 3px; }
+    .p-row b { color: #e6edf3; font-weight: 500; }
+
+    #loading {
+      position: fixed; inset: 0;
+      background: rgba(13,17,23,0.95);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 9999; gap: 12px;
+    }
+    #loading span { font-size: 0.9rem; color: #8b949e; }
+    .spin {
+      width: 36px; height: 36px;
+      border: 3px solid #21262d;
+      border-top-color: #58a6ff;
+      border-radius: 50%;
+      animation: sp 0.7s linear infinite;
+    }
+    @keyframes sp { to { transform: rotate(360deg); } }
+
+    /* Cluster personalizado */
+    .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+      background: rgba(88,166,255,0.15) !important;
+    }
+    .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div {
+      background: rgba(88,166,255,0.4) !important;
+      color: #e6edf3 !important;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spin"></div>
+  <span>Carregando startups do Território Inovação…</span>
+</div>
+
+<header>
+  <div>
+    <h1>🗺 Território Inovação — Startups de Curitiba / PR</h1>
+    <div class="sub">Ecossistema de inovação mapeado via dados públicos</div>
+  </div>
+  <div id="count">—</div>
+</header>
+
+<div id="controls">
+  <input id="search" type="text" placeholder="🔍  Buscar por nome, área, endereço ou CNPJ…" />
+  <select id="filtro-area">
+    <option value="">Todas as áreas</option>
+  </select>
+</div>
+
+<div id="map"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
+<script>
+  const map = L.map('map', { center: [-25.4284, -49.2733], zoom: 12 });
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO', maxZoom: 19
+  }).addTo(map);
+
+  // Mapa de códigos CNAE -> descrição legível
+  const CNAE = {
+    "6209100": "Suporte técnico e outros serviços em TI",
+    "8230001": "Organização de feiras e eventos",
+    "9511800": "Reparação e manutenção de computadores",
+    "7490104": "Atividades de intermediação de negócios",
+    "6201501": "Desenvolvimento de software sob encomenda",
+    "5912099": "Pós-produção audiovisual",
+    "4751201": "Comércio de equipamentos de informática",
+    "6311900": "Tratamento de dados e hosting",
+    "6204000": "Consultoria em tecnologia da informação",
+    "6203100": "Software customizável",
+    "6202300": "Software não-customizável",
+    "8211300": "Serviços de escritório e apoio administrativo",
+    "7490199": "Outras atividades profissionais",
+    "7020400": "Consultoria em gestão empresarial",
+    "5911199": "Produção cinematográfica e audiovisual",
+    "6190699": "Outras telecomunicações",
+    "7319004": "Consultoria em publicidade",
+    "7410203": "Design de produto",
+    "6399200": "Outros serviços de informação",
+    "7410202": "Design gráfico",
+    "6110803": "Comunicação multimídia",
+    "8299799": "Outros serviços às empresas",
+  };
+
+  function resolverArea(s) {
+    if (s.area_atuacao) {
+      // Se já é texto descritivo (não numérico puro), usa direto
+      if (isNaN(s.area_atuacao.toString().replace(/\W/g,''))) return s.area_atuacao;
+      // Se é código CNAE
+      const cod = s.area_atuacao.toString().replace(/\D/g,'');
+      return CNAE[cod] || `CNAE ${s.area_atuacao}`;
+    }
+    return '—';
+  }
+
+  const mkIcon = L.divIcon({
+    className: '',
+    html: '<div style="width:9px;height:9px;background:#58a6ff;border-radius:50%;border:2px solid #0d1117;box-shadow:0 0 5px rgba(88,166,255,0.6)"></div>',
+    iconSize: [9,9], iconAnchor: [4,4]
+  });
+
+  const cluster = L.markerClusterGroup({ maxClusterRadius: 45, showCoverageOnHover: false });
+  let allData = [];
+
+  fetch('startups_data.json')
+    .then(r => r.json())
+    .then(data => {
+      allData = data;
+      popularFiltroArea(data);
+      render(data);
+      document.getElementById('loading').style.display = 'none';
+    })
+    .catch(() => {
+      document.getElementById('loading').innerHTML =
+        '<p style="color:#f85149;font-size:.9rem">Erro ao carregar startups_data.json</p>';
+    });
+
+  function popularFiltroArea(data) {
+    const areas = {};
+    data.forEach(s => {
+      const a = resolverArea(s);
+      if (a && a !== '—') areas[a] = (areas[a] || 0) + 1;
+    });
+
+    const select = document.getElementById('filtro-area');
+    Object.entries(areas)
+      .sort((a,b) => b[1] - a[1])
+      .forEach(([nome, qtd]) => {
+        const opt = document.createElement('option');
+        opt.value = nome;
+        opt.textContent = `${nome} (${qtd})`;
+        select.appendChild(opt);
+      });
+  }
+
+  function render(data) {
+    cluster.clearLayers();
+    let ok = 0;
+    data.forEach(s => {
+      if (!s.lat || !s.lng) return;
+      ok++;
+      const area = resolverArea(s);
+      const m = L.marker([s.lat, s.lng], { icon: mkIcon });
+      m.bindPopup(`
+        <div class="p-nome">${s.nome || '<em style="color:#484f58">Sem nome</em>'}</div>
+        <div class="p-row">🏷 <b>${area}</b></div>
+        <div class="p-row">📍 <b>${s.endereco || '—'}</b>, ${s.municipio || ''}</div>
+        <div class="p-row">📅 Fundada em <b>${s.data_fundacao || '—'}</b></div>
+        ${s.cnpj ? `<div class="p-row">🔢 <b>${s.cnpj}</b></div>` : ''}
+      `, { maxWidth: 300 });
+      cluster.addLayer(m);
+    });
+    map.addLayer(cluster);
+    document.getElementById('count').textContent = `${ok.toLocaleString('pt-BR')} startups`;
+  }
+
+  function filtrar() {
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    const area = document.getElementById('filtro-area').value;
+
+    let filtered = allData;
+
+    if (q) {
+      filtered = filtered.filter(s =>
+        (s.nome||'').toLowerCase().includes(q) ||
+        resolverArea(s).toLowerCase().includes(q) ||
+        (s.endereco||'').toLowerCase().includes(q) ||
+        (s.cnpj||'').includes(q)
+      );
+    }
+
+    if (area) {
+      filtered = filtered.filter(s => resolverArea(s) === area);
+    }
+
+    render(filtered);
+  }
+
+  let t;
+  document.getElementById('search').addEventListener('input', () => { clearTimeout(t); t = setTimeout(filtrar, 220); });
+  document.getElementById('filtro-area').addEventListener('change', filtrar);
+</script>
+</body>
+</html>
